@@ -60,7 +60,7 @@ public class WebServer {
         ServerState state = new ServerState();
 
         state.setTimestamp(Instant.now().toString());
-        state.setService("database");
+        state.setService("web server");
         state.setStatus(status);
         state.setServer(destinyServer);
 
