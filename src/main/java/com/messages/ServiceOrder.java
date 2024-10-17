@@ -1,6 +1,6 @@
 package com.messages;
 
-public class ServiceOrder {
+public class ServiceOrder implements Comparable<ServiceOrder>{
 
     private String timestamp;
     private String server;
@@ -55,5 +55,22 @@ public class ServiceOrder {
 
     public void setAction_required(String action_required) {
         this.action_required = action_required;
+    }
+
+    @Override
+    public int compareTo(ServiceOrder other) {
+        if (this.status.equals("vermelho") && !other.status.equals("vermelho")) {
+            return -1; // this tem maior prioridade
+        } else if (!this.status.equals("vermelho") && other.status.equals("vermelho")) {
+            return 1; // other tem maior prioridade
+        }
+
+        if (this.status.equals("amarelo") && !other.status.equals("amarelo")) {
+            return -1; // amarelo tem prioridade sobre outros
+        } else if (!this.status.equals("amarelo") && other.status.equals("amarelo")) {
+            return 1; // other tem prioridade
+        }
+
+        return 0;
     }
 }
