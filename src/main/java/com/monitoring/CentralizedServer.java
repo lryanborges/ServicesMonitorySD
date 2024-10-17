@@ -44,7 +44,7 @@ public class CentralizedServer {
             System.out.println("---------------------------------------");
             System.out.println("[1] - Verificar status dos servidores");
             System.out.println("[2] - Relatório de incidentes");
-            System.out.println("[3] - Verificar histórico"); // ou algo a ver com gerar relatório de histórico
+            System.out.println("[3] - Serviços com ordens de serviço pendentes");
             System.out.println("[0] - Encerrar o monitoramento");
             System.out.println("---------------------------------------");
             opc = scan.nextInt();

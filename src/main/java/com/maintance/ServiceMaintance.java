@@ -66,24 +66,42 @@ public class ServiceMaintance {
             switch (opc) {
                 case 1:
 
+                    if (maintanceQueue.isEmpty()) {
+                        System.out.println("Nenhuma ordem de serviço em aberto.");
+                    }
+
                     for(ServiceOrder so : maintanceQueue) {
                         String jsonSO = objectWriter.writeValueAsString(so);
                         System.out.println(jsonSO);
                     }
 
+                    System.out.println("---------------------------------------");
+
                     break;
                 case 2:
+
+                    if(technicalQueue.isEmpty()) {
+                        System.out.println("Nenhum técnico disponível.");
+                    }
 
                     for(Technical tec : technicalQueue) {
                         System.out.println(" - " + tec.getName());
                     }
 
+                    System.out.println("---------------------------------------");
+
                     break;
                 case 3:
+
+                    if(currentServiceOrders.isEmpty()){
+                        System.out.println("Nenhuma manutenção acontencendo.");
+                    }
 
                     for(String currentSO : currentServiceOrders) {
                         System.out.println(" - " + currentSO);
                     }
+
+                    System.out.println("---------------------------------------");
 
                     break;
                 case 0:
