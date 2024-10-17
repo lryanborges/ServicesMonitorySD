@@ -34,6 +34,7 @@ public class ServiceMaintance {
     private static final List<String> currentServiceOrders = new ArrayList<>();
 
     private static final String MONITORINGSERVER_CONN = "maintenanceConn";
+    private static final String RESOLVEPROBLEM_CONN = "resolveProblemConn";
     private static final Scanner scan  = new Scanner(System.in);
 
     public static void main(String[] args) throws Exception {
@@ -151,7 +152,7 @@ public class ServiceMaintance {
                 technicalQueue.add(tec);
 
                 currentServiceOrders.removeIf(order -> order.contains(tec.getName()));
-            }, 10, TimeUnit.SECONDS);
+            }, 1, TimeUnit.MINUTES);
 
         }, 0, 1, TimeUnit.SECONDS);
     }
