@@ -29,9 +29,8 @@ public class Server {
 
     public static void main(String[] args) throws Exception {
 
-        System.out.println("Server started");
-
         System.out.println("Server " + serverNumber + " iniciado.");
+        System.out.println("-----------------------");
 
         sendData("localhost", "database");
         sendData("localhost", "web server");
@@ -64,7 +63,7 @@ public class Server {
             catch(Exception e) {
                 e.printStackTrace();
             }
-        }, 0, 3, TimeUnit.SECONDS);
+        }, 0, 1, TimeUnit.SECONDS);
     }
 
     private static String setRoutingKey(String message) {
@@ -88,10 +87,16 @@ public class Server {
 
         // definir melhor como pegar essas métricas
         Random rand = new Random();
-        Metrics metrics = new Metrics();
-        metrics.setCpu_usage(rand.nextInt(100));
-        metrics.setMemory_usage(rand.nextInt(100));
-        metrics.setResponse_time(rand.nextInt(1000));
+        Metrics metrics = state.getMetrics();
+
+        int cpuVariation = rand.nextInt(31) - 10; // variação entre -10 e +20
+        metrics.setCpu_usage(Math.max(0, metrics.getCpu_usage() + cpuVariation));
+
+        int memoryVariation = rand.nextInt(31) - 10; // variação entre -10 e +20
+        metrics.setMemory_usage(Math.max(0, metrics.getMemory_usage() + memoryVariation));
+
+        int responseVariation = rand.nextInt(301) - 100; // variação entre -100 e +200
+        metrics.setResponse_time(Math.max(0, metrics.getResponse_time() + responseVariation));
 
         state.setMetrics(metrics);
 

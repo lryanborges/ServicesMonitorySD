@@ -11,9 +11,7 @@ import com.rabbitmq.client.*;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Scanner;
+import java.util.*;
 
 public class CentralizedServer {
 
@@ -22,6 +20,7 @@ public class CentralizedServer {
 
     private static final Map<Instant, ServiceOrder> history[] = new HashMap[6];
     private static final Map<String, ServerState> currentStates = new HashMap<>();
+    private static final Set<String> alreadySendOS = new HashSet<>();
 
     private static final String LOGSERVER_CONN = "logServerConn";
     private static final String MAINTANCE_CONN = "maintenanceConn";
@@ -44,7 +43,7 @@ public class CentralizedServer {
             System.out.println("Servidor de Monitoramento Centralizado");
             System.out.println("---------------------------------------");
             System.out.println("[1] - Verificar status dos servidores");
-            System.out.println("[2] - Gerar relatório");
+            System.out.println("[2] - Relatório de incidentes");
             System.out.println("[3] - Verificar histórico"); // ou algo a ver com gerar relatório de histórico
             System.out.println("[0] - Encerrar o monitoramento");
             System.out.println("---------------------------------------");
@@ -79,6 +78,36 @@ public class CentralizedServer {
 
                     break;
                 case 2:
+
+                    System.out.println("---------------------------------------");
+                    System.out.println("[1] - Servidor 1 -> Database");
+                    System.out.println("[2] - Servidor 1 -> Web Server");
+                    System.out.println("[3] - Servidor 2 -> Database");
+                    System.out.println("[4] - Servidor 2 -> Web Server");
+                    System.out.println("[5] - Servidor 3 -> Database");
+                    System.out.println("[6] - Servidor 3 -> Web Server");
+                    System.out.println("[7] - Histórico completo");
+                    System.out.println("---------------------------------------");
+                    opc = scan.nextInt();
+
+                    if(opc >= 1 && opc <= 6) {
+                        for (ServiceOrder or : history[opc - 1].values()) {
+                            String jsonSO = objectWriter.writeValueAsString(or);
+                            System.out.println(jsonSO);
+                        }
+                    } else if(opc == 7){
+                       for (int i = 0; i < history.length; i++) {
+                           for (ServiceOrder or : history[i].values()) {
+                               String jsonSO = objectWriter.writeValueAsString(or);
+                               System.out.println(jsonSO);
+                           }
+                       }
+                    } else {
+                        System.out.println("Opção inválida!");
+                    }
+
+                    System.out.println("---------------------------------------");
+
                     break;
                 case 3:
                     break;
@@ -111,8 +140,6 @@ public class CentralizedServer {
         for(String routingKey : routingKeys) {
             channel.queueBind(queueName, LOGSERVER_CONN, routingKey);
 
-            System.out.println(routingKey);
-
             DeliverCallback callback = (tagConsumer, entrega) -> {
                 //String message = new String(entrega.getBody(), "UTF-8");
                 //System.out.println("Recebida <-- " + entrega.getEnvelope().getRoutingKey() + ": " + message);
@@ -124,8 +151,16 @@ public class CentralizedServer {
                 currentStates.put(topic, serverState);
 
                 if(serverState.getStatus().equals("amarelo") || serverState.getStatus().equals("vermelho")) {
+
+                    // se já tiver enviado, sai
+                    if (alreadySendOS.contains(topic)) {
+                        return;
+                    }
+
                     ServiceOrder newServiceOrder = generateServiceOrder(topic, serverState);
                     String jsonServiceOrder = objectWriter.writeValueAsString(newServiceOrder);
+
+                    alreadySendOS.add(topic);
 
                     channel.basicPublish("", MAINTANCE_CONN,
                             MessageProperties.PERSISTENT_TEXT_PLAIN,
