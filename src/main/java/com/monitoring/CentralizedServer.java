@@ -110,6 +110,9 @@ public class CentralizedServer {
 
                     break;
                 case 3:
+                    for (String send : alreadySendOS){
+                        System.out.println(send);
+                    }
                     break;
                 case 0:
                     System.out.println("---------------------------------------");
@@ -144,7 +147,16 @@ public class CentralizedServer {
                 //String message = new String(entrega.getBody(), "UTF-8");
                 //System.out.println("Recebida <-- " + entrega.getEnvelope().getRoutingKey() + ": " + message);
 
+                String restarted = new String(entrega.getBody(), "UTF-8");
+
                 String topic = entrega.getEnvelope().getRoutingKey();
+
+                // se for sinal de reiniciado, tira a flag e sai da função
+                if(restarted.equals("restarted")) {
+                    alreadySendOS.remove(topic);
+                    return;
+                }
+
                 ServerState serverState = objectMapper.readValue(entrega.getBody(), ServerState.class);
 
                 // cada routingkey vai ter seu último estado no map
