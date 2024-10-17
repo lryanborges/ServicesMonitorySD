@@ -24,7 +24,7 @@ public class Server {
 
     private static final String LOGSERVER_CONN = "logServerConn";
 
-    private static final int serverNumber = 1;
+    private static final int serverNumber = 3;
     private static final String serverKey = "server" + serverNumber;
 
     public static void main(String[] args) throws Exception {
@@ -33,12 +33,12 @@ public class Server {
 
         System.out.println("Server " + serverNumber + " iniciado.");
 
-        receiveData("localhost", "database");
-        receiveData("localhost", "web server");
+        sendData("localhost", "database");
+        sendData("localhost", "web server");
 
     }
 
-    private static void receiveData(String ip, String serviceName) throws Exception {
+    private static void sendData(String ip, String serviceName) throws Exception {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost(ip);
 
@@ -68,23 +68,11 @@ public class Server {
     }
 
     private static String setRoutingKey(String message) {
-        if(message.contains("server1") && message.contains("database")) {
-            return "server1/database";
+        if(message.contains("database")) {
+            return serverKey + "/database";
         }
-        else if(message.contains("server2") && message.contains("database")) {
-            return "server2/database";
-        }
-        else if(message.contains("server3") && message.contains("database")) {
-            return "server3/database";
-        }
-        else if(message.contains("server1") && message.contains("web server")) {
-            return "server1/web_server";
-        }
-        else if(message.contains("server2") && message.contains("web server")) {
-            return "server2/web_server";
-        }
-        else if(message.contains("server3") && message.contains("web server")) {
-            return "server3/web_server";
+        if(message.contains("web server")) {
+            return serverKey + "/web_server";
         }
 
         return null;

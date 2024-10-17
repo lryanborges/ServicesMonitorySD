@@ -1,16 +1,102 @@
 package com.monitoring;
 
-import com.rabbitmq.client.ConnectionFactory;
-import com.rabbitmq.client.DeliverCallback;
-import com.rabbitmq.client.BuiltinExchangeType;
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.Connection;
+import com.cluster.Server;
+import com.constants.Colors;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
+import com.messages.ServerState;
+import com.messages.ServiceOrder;
+import com.messages.Metrics;
+import com.rabbitmq.client.*;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
 
 public class CentralizedServer {
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectWriter objectWriter = objectMapper.writer().withDefaultPrettyPrinter();
+
+    private static final Map<Instant, ServiceOrder> history[] = new HashMap[6];
+    private static final Map<String, ServerState> currentStates = new HashMap<>();
+
     private static final String LOGSERVER_CONN = "logServerConn";
+    private static final String MAINTANCE_CONN = "maintenanceConn";
+    private static final String[] routingKeys = { "server1/database", "server1/web_server",
+                                                "server2/database", "server2/web_server",
+                                                "server3/database", "server3/web_server" };
+    private static final Scanner scan = new Scanner(System.in);
 
     public static void main(String[] args) throws Exception {
+
+        // só p inicializar os maps dos históricos
+        for (int i = 0; i < history.length; i++) {
+            history[i] = new HashMap<>();
+        }
+
+        receiveMessage();
+
+        int opc = -1;
+        do {
+            System.out.println("Servidor de Monitoramento Centralizado");
+            System.out.println("---------------------------------------");
+            System.out.println("[1] - Verificar status dos servidores");
+            System.out.println("[2] - Gerar relatório");
+            System.out.println("[3] - Verificar histórico"); // ou algo a ver com gerar relatório de histórico
+            System.out.println("[0] - Encerrar o monitoramento");
+            System.out.println("---------------------------------------");
+            opc = scan.nextInt();
+
+            switch (opc) {
+                case 1:
+
+                    if(currentStates.isEmpty()){
+                        System.out.println("-----------------------------");
+                        System.out.println("Nenhum servidor foi ligado.");
+                    }
+
+                    for (String connectionKey : currentStates.keySet()) {
+                        System.out.println("-----------------------------");
+                        System.out.println("Serviço: " + connectionKey);
+                        String status = currentStates.get(connectionKey).getStatus();
+
+                        if(status.equals("azul")) {
+                            System.out.println("Status: " + Colors.BLUE + status + Colors.RESET);
+                        }
+                        if (status.equals("amarelo")) {
+                            System.out.println("Status: " + Colors.YELLOW + status + Colors.RESET);
+                        }
+                        if (status.equals("vermelho")) {
+                            System.out.println("Status: " + Colors.RED + status + Colors.RESET);
+                        }
+
+                    }
+
+                    System.out.println("-----------------------------");
+
+                    break;
+                case 2:
+                    break;
+                case 3:
+                    break;
+                case 0:
+                    System.out.println("---------------------------------------");
+                    System.out.println("Servidor de Monitoramento Centralizado encerrado.");
+                    System.out.println("---------------------------------------");
+
+                    System.exit(0);
+                    break;
+                default:
+                    System.out.println("Opção inválida!");
+            }
+        } while(opc != 0);
+
+    }
+
+    private static void receiveMessage() throws Exception {
         ConnectionFactory factory = new ConnectionFactory();
         factory.setHost("localhost");
         Connection connection = factory.newConnection();
@@ -19,16 +105,95 @@ public class CentralizedServer {
         channel.exchangeDeclare(LOGSERVER_CONN, BuiltinExchangeType.TOPIC);
         String queueName = channel.queueDeclare().getQueue();
 
-        String routingKey = "#";
-        channel.queueBind(queueName, LOGSERVER_CONN, routingKey);
+        // criando a fila de manunteção
+        channel.queueDeclare(MAINTANCE_CONN, true, false, false, null);
 
-        System.out.println("[*] Aguardando mensagens...");
+        for(String routingKey : routingKeys) {
+            channel.queueBind(queueName, LOGSERVER_CONN, routingKey);
 
-        DeliverCallback callback = (tagConsumer, entrega) -> {
-            String message = new String(entrega.getBody(), "UTF-8");
-            System.out.println("Recebida <-- " + entrega.getEnvelope().getRoutingKey() + ": " + message);
-        };
-        channel.basicConsume(queueName, true, callback, tagConsumer -> {});
+            System.out.println(routingKey);
+
+            DeliverCallback callback = (tagConsumer, entrega) -> {
+                //String message = new String(entrega.getBody(), "UTF-8");
+                //System.out.println("Recebida <-- " + entrega.getEnvelope().getRoutingKey() + ": " + message);
+
+                String topic = entrega.getEnvelope().getRoutingKey();
+                ServerState serverState = objectMapper.readValue(entrega.getBody(), ServerState.class);
+
+                // cada routingkey vai ter seu último estado no map
+                currentStates.put(topic, serverState);
+
+                if(serverState.getStatus().equals("amarelo") || serverState.getStatus().equals("vermelho")) {
+                    ServiceOrder newServiceOrder = generateServiceOrder(topic, serverState);
+                    String jsonServiceOrder = objectWriter.writeValueAsString(newServiceOrder);
+
+                    channel.basicPublish("", MAINTANCE_CONN,
+                            MessageProperties.PERSISTENT_TEXT_PLAIN,
+                            jsonServiceOrder.getBytes(StandardCharsets.UTF_8));
+
+                    addToHistory(entrega.getEnvelope().getRoutingKey(), newServiceOrder);
+
+                }
+
+                // oq é pra adicionar no histórico são as ordens de serviço
+                //addToHistory(entrega.getEnvelope().getRoutingKey(), serverState);
+
+            };
+            channel.basicConsume(queueName, true, callback, tagConsumer -> {});
+        }
+
+    }
+
+    private static void addToHistory(String server, ServiceOrder serviceOrder){
+
+        if(server.equals("server1/database")) {
+            history[0].put(Instant.parse(serviceOrder.getTimestamp()), serviceOrder);
+        } else if(server.equals("server1/web_server")) {
+            history[1].put(Instant.parse(serviceOrder.getTimestamp()), serviceOrder);
+        } else if(server.equals("server2/database")) {
+            history[2].put(Instant.parse(serviceOrder.getTimestamp()), serviceOrder);
+        } else if(server.equals("server2/web_server")) {
+            history[3].put(Instant.parse(serviceOrder.getTimestamp()), serviceOrder);
+        } else if(server.equals("server3/database")) {
+            history[4].put(Instant.parse(serviceOrder.getTimestamp()), serviceOrder);
+        } else if(server.equals("server3/web_server")) {
+            history[5].put(Instant.parse(serviceOrder.getTimestamp()), serviceOrder);
+        }
+
+    }
+
+    private static ServiceOrder generateServiceOrder(String topic, ServerState serverState) {
+
+        ServiceOrder serviceOrder = new ServiceOrder();
+        Instant timestamp = Instant.now();
+        String problem = "";
+
+        serviceOrder.setTimestamp(timestamp.toString());
+        serviceOrder.setServer(serverState.getServer());
+        serviceOrder.setService(serverState.getService());
+        serviceOrder.setStatus(serverState.getStatus());
+
+        Metrics metrics = serverState.getMetrics();
+        if(metrics.getCpu_usage() >= 94) { // vermelho
+            problem += "Uso de CPU em " + metrics.getCpu_usage() + "%, serviço não responde. ";
+        } else if (metrics.getCpu_usage() >= 75){ // amarelo
+            problem += "Uso de CPU em " + metrics.getCpu_usage() + "%, serviço requer atenção. ";
+        }
+        if(metrics.getMemory_usage() >= 90) { // vermelho
+            problem += "Uso de Memória em " + metrics.getMemory_usage() + "%, serviço não responde. ";
+        } else if(metrics.getMemory_usage() >= 75){ // amarelo
+            problem += "Uso de Memória em " + metrics.getMemory_usage() + "%, serviço requer atenção. ";
+        }
+        if(metrics.getResponse_time() >= 900) { // vermelho
+            problem += "Tempo de resposta de " + metrics.getResponse_time() + " segundos, serviço extramente lento. ";
+        } else if (metrics.getResponse_time() >= 600) { // amarelo
+            problem += "Tempo de resposta de " + metrics.getResponse_time() + " segundos, serviço está lento. ";
+        }
+
+        serviceOrder.setProblem(problem);
+        serviceOrder.setAction_required("Verificar e reiniciar o serviço.");
+
+        return serviceOrder;
     }
 
 }
