@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.messages.ServiceOrder;
 import com.rabbitmq.client.*;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.Executors;
@@ -35,6 +36,7 @@ public class ServiceMaintance {
 
     private static final String MONITORINGSERVER_CONN = "maintenanceConn";
     private static final String RESOLVEPROBLEM_CONN = "resolveProblemConn";
+    private static Channel channel = null;
     private static final Scanner scan  = new Scanner(System.in);
 
     public static void main(String[] args) throws Exception {
@@ -105,7 +107,7 @@ public class ServiceMaintance {
 
         Connection conn = factory.newConnection();
 
-        final Channel channel = conn.createChannel();
+        channel = conn.createChannel();
 
         channel.queueDeclare(MONITORINGSERVER_CONN, true, false, false, null);
 
@@ -151,8 +153,36 @@ public class ServiceMaintance {
             scheduler.schedule(() -> {
                 technicalQueue.add(tec);
 
+                String routingKey = "";
+                if(so.getService().equals("web server")) {
+                    routingKey = so.getServer() + "/web_server";
+                } else { // se for database
+                    routingKey = so.getServer() + "/" + so.getService();
+                }
+
+
+                try {
+                    channel.exchangeDeclare(RESOLVEPROBLEM_CONN, BuiltinExchangeType.TOPIC);
+
+                    String resolveProblem = "restarted";
+
+                    channel.basicPublish(
+                            RESOLVEPROBLEM_CONN,
+                            routingKey,
+                            null,
+                            resolveProblem.getBytes(StandardCharsets.UTF_8)
+                    );
+
+                    System.out.println("----------------------");
+                    System.out.println(" --> " + routingKey + " reiniciado.");
+                    System.out.println("----------------------");
+
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+
                 currentServiceOrders.removeIf(order -> order.contains(tec.getName()));
-            }, 1, TimeUnit.MINUTES);
+            }, 30, TimeUnit.SECONDS);
 
         }, 0, 1, TimeUnit.SECONDS);
     }

@@ -4,10 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.messages.Metrics;
 import com.messages.ServerState;
-import com.rabbitmq.client.BuiltinExchangeType;
-import com.rabbitmq.client.Channel;
-import com.rabbitmq.client.Connection;
-import com.rabbitmq.client.ConnectionFactory;
+import com.messages.ServiceOrder;
+import com.rabbitmq.client.*;
 
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
@@ -23,6 +21,10 @@ public class Server {
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
     private static final String LOGSERVER_CONN = "logServerConn";
+    private static final String RESOLVEPROBLEM_CONN = "resolveProblemConn";
+    private static Channel channel;
+    private static ServerState databaseSS = new ServerState();
+    private static ServerState webserverSS = new ServerState();
 
     private static final int serverNumber = 3;
     private static final String serverKey = "server" + serverNumber;
@@ -35,6 +37,8 @@ public class Server {
         sendData("localhost", "database");
         sendData("localhost", "web server");
 
+        receiveResolveMaintance();
+
     }
 
     private static void sendData(String ip, String serviceName) throws Exception {
@@ -42,13 +46,22 @@ public class Server {
         factory.setHost(ip);
 
         Connection conn = factory.newConnection();
-        final Channel channel = conn.createChannel();
+        channel = conn.createChannel();
 
         channel.exchangeDeclare(LOGSERVER_CONN, BuiltinExchangeType.TOPIC);
 
         scheduler.scheduleAtFixedRate(() -> {
             try {
                 ServerState serverState = getServerState(serverKey, serviceName);
+
+                if (serviceName.equals("database")){
+                    databaseSS = serverState;
+                }
+
+                if(serviceName.equals("webserver")){
+                    webserverSS = serverState;
+                }
+
                 String jsonMessage = objectWriter.writeValueAsString(serverState);
                 String routingKey = setRoutingKey(jsonMessage);
 
@@ -79,7 +92,12 @@ public class Server {
 
     private static ServerState getServerState(String destinyServer, String service) {
 
-        ServerState state = new ServerState();
+        if(databaseSS == null && webserverSS == null) {
+            databaseSS = new ServerState();
+            webserverSS = new ServerState();
+        }
+
+        ServerState state = service.equals("database") ? databaseSS : webserverSS;
 
         state.setTimestamp(Instant.now().toString());
         state.setService(service);
@@ -89,14 +107,14 @@ public class Server {
         Random rand = new Random();
         Metrics metrics = state.getMetrics();
 
-        int cpuVariation = rand.nextInt(31) - 10; // variação entre -10 e +20
-        metrics.setCpu_usage(Math.max(0, metrics.getCpu_usage() + cpuVariation));
+        int cpuVariation = rand.nextInt(6); // variação entre 0 e 5
+        metrics.setCpu_usage(metrics.getCpu_usage() + cpuVariation);
 
-        int memoryVariation = rand.nextInt(31) - 10; // variação entre -10 e +20
-        metrics.setMemory_usage(Math.max(0, metrics.getMemory_usage() + memoryVariation));
+        int memoryVariation = rand.nextInt(6); // variação entre 0 e 5
+        metrics.setMemory_usage(metrics.getMemory_usage() + memoryVariation);
 
-        int responseVariation = rand.nextInt(301) - 100; // variação entre -100 e +200
-        metrics.setResponse_time(Math.max(0, metrics.getResponse_time() + responseVariation));
+        int responseVariation = rand.nextInt(51); // variação entre 0 e 50
+        metrics.setResponse_time(metrics.getResponse_time() + responseVariation);
 
         state.setMetrics(metrics);
 
@@ -115,6 +133,66 @@ public class Server {
         }
 
         return state;
+    }
+
+    private static void receiveResolveMaintance() throws Exception {
+
+        // Declara a exchange e a fila
+        channel.exchangeDeclare(RESOLVEPROBLEM_CONN, BuiltinExchangeType.TOPIC);
+        channel.queueDeclare(RESOLVEPROBLEM_CONN, false, false, false, null);
+
+        String queueName = channel.queueDeclare().getQueue();
+
+        String[] serverKeys = { serverKey + "/database", serverKey + "/web_server" };
+
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                for (String sk : serverKeys) {
+                    channel.queueBind(queueName, RESOLVEPROBLEM_CONN, sk);
+
+                    DeliverCallback callbackEntrega = (tagConsumidor, entrega) -> {
+                        String message = new String(entrega.getBody(), StandardCharsets.UTF_8);
+
+                        System.out.println("msg: " + message);
+
+                        if (message.equals("restarted")) {
+                            if (sk.contains("database")) {
+                                databaseSS.setMetrics(new Metrics());
+                            }
+
+                            if (sk.contains("web_server")) {
+                                webserverSS.setMetrics(new Metrics());
+                            }
+
+                            System.out.println("RESTARTED");
+
+                            // envia pro servidor central q reiniciou
+                            channel.exchangeDeclare(LOGSERVER_CONN, BuiltinExchangeType.TOPIC);
+                            channel.basicPublish(
+                                    LOGSERVER_CONN,
+                                    entrega.getEnvelope().getRoutingKey(),
+                                    null,
+                                    "restarted".getBytes(StandardCharsets.UTF_8)
+                            );
+
+                        }
+
+                        try {
+                            // Processar mensagem
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        } finally {
+                            channel.basicAck(entrega.getEnvelope().getDeliveryTag(), false);
+                        }
+                    };
+
+                    channel.basicConsume(queueName, false, callbackEntrega, tagConsumidor -> {});
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }, 0, 1, TimeUnit.SECONDS);
+
     }
 
 }
